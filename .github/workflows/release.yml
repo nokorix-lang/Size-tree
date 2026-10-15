@@ -1,0 +1,40 @@
+name: Portable Windows release
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  release:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - name: Build portable executable
+        run: dotnet publish src/SizeTree/SizeTree.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:DebugType=None -p:DebugSymbols=false -o artifacts/publish
+      - name: Package executable and full source
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Path artifacts/package/SizeTree/source -Force
+          Copy-Item artifacts/publish/SizeTree.exe artifacts/package/SizeTree/
+          Copy-Item README.md artifacts/package/SizeTree/
+          git archive HEAD -o artifacts/source.zip
+          if ($LASTEXITCODE -ne 0) { throw 'Source archive failed' }
+          Expand-Archive artifacts/source.zip artifacts/package/SizeTree/source
+          Compress-Archive artifacts/package/SizeTree artifacts/SizeTree-1.0.0-win-x64.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: SizeTree-win-x64
+          path: artifacts/SizeTree-1.0.0-win-x64.zip
+      - name: Publish GitHub release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $tag = '${{ github.ref_name }}'
+          if ('${{ github.ref_type }}' -ne 'tag') { throw 'Start the release by pushing a version tag.' }
+          gh release create $tag artifacts/SizeTree-1.0.0-win-x64.zip --verify-tag --title "SizeTree $tag" --notes "Portable Windows-x64-App mit Ordnerauswahl, Dateibaum, Kopieren und TXT-Export. ZIP enthält EXE, Anleitung und vollständigen C#-Quellcode. Keine separate .NET-Installation erforderlich."
+          if ($LASTEXITCODE -ne 0) { throw 'Release publication failed' }
